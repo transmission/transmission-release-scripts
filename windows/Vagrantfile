@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "marcinbojko/w1709-trial"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "windows (transmission release)"
+
+    vb.memory = "8192"
+    vb.cpus = 1
+    vb.gui = false
+  end
+
+  config.vm.provision "shell", inline: <<-SHELL
+    choco install vcbuildtools --version 2015.4 -y
+    choco install cmake 7zip ActivePerl python2 nasm git patch psexec -y
+    choco install wixtoolset --version 3.11.0.20170506 -y
+
+    $paths = @(
+        "C:\\Program Files (x86)\\Microsoft Visual C++ Build Tools",
+        "C:\\Program Files\\CMake\\bin",
+        "C:\\Program Files\\7-Zip",
+        "C:\\Perl64\\bin",
+        "C:\\Python27",
+        "C:\\Program Files\\NASM",
+        "C:\\Program Files\\Git\\bin",
+        "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
+    )
+
+    foreach ($path in $paths) {
+        if (!$env:PATH.Contains($path)) {
+            $env:PATH = $path + ";" + $env:PATH
+        }
+    }
+
+    [Environment]::SetEnvironmentVariable("PATH", $env:PATH, [System.EnvironmentVariableTarget]::Machine)
+  SHELL
+end

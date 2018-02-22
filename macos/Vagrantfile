@@ -1,0 +1,14 @@
+#!/usr/bin/env ruby
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "emil-appunite/macos10.13-xcode9.1"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "macos (transmission release)"
+
+    vb.memory = "8192"
+    vb.cpus = 1
+    vb.gui = false
+  end
+end
