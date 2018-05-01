@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
-THIS_DIR=`realpath $(dirname "$0")`
-DST_DIR="${THIS_DIR}"
+set -e
+set -o pipefail
 
 REPO_URI='https://github.com/transmission/transmission'
 RELEASE_BRANCH='2.9x'
-RELEASE_VERSION='2.93'
+RELEASE_VERSION='2.94'
 RELEASE_REVISION=`git ls-remote "${REPO_URI}" "refs/heads/${RELEASE_BRANCH}" | cut -f1 | head -c10`
+
+THIS_DIR=`realpath $(dirname "$0")`
+DST_DIR="${THIS_DIR}/${RELEASE_VERSION}"
 
 make_source()
 {
@@ -60,6 +63,11 @@ make_macos()
     openssl dgst -dss1 -sign <(vault read -field=file secret/transmission/macos-sparkle-key | base64 -d) | \
     openssl enc -base64 > "$DST_DIR/Transmission-$RELEASE_VERSION.dmg.sig"
 
+    openssl dgst -dss1 \
+        -verify sparkle_dsa_pub.pem \
+        -signature <(openssl base64 -d -in "$DST_DIR/Transmission-$RELEASE_VERSION.dmg.sig") \
+        < <(openssl sha1 -binary "$DST_DIR/Transmission-$RELEASE_VERSION.dmg")
+
     vagrant ssh -c "set -x; rm -rf ${REMOTE_DST_DIR}"
 
     rm ./vagrant.ssh.config
@@ -80,10 +88,10 @@ make_windows()
     SCRIPT="\$release_branch = '${RELEASE_BRANCH}'; ${SCRIPT}"
     SCRIPT="\$release_version = '${RELEASE_VERSION}'; ${SCRIPT}"
     SCRIPT="\$release_revision = '${RELEASE_REVISION}'; ${SCRIPT}"
-    SCRIPT="\$cert_file='C:\\vagrant\\${CERT_FILE}'; ${SCRIPT}"
-    SCRIPT="\$cert_name='${CERT_NAME}'; ${SCRIPT}"
-    SCRIPT="\$cert_sha1='${CERT_SHA1}'; ${SCRIPT}"
-    SCRIPT="\$cert_password='${CERT_PASSWORD}'; ${SCRIPT}"
+    SCRIPT="\$cert_file = 'C:\\vagrant\\${CERT_FILE}'; ${SCRIPT}"
+    SCRIPT="\$cert_name = '${CERT_NAME}'; ${SCRIPT}"
+    SCRIPT="\$cert_sha1 = '${CERT_SHA1}'; ${SCRIPT}"
+    SCRIPT="\$cert_password = '${CERT_PASSWORD}'; ${SCRIPT}"
     SCRIPT="\$dst_dir = '${REMOTE_DST_DIR}'; ${SCRIPT}"
 
     pushd windows
@@ -105,9 +113,9 @@ make_windows()
     popd
 }
 
-set -e
-
 vault status >/dev/null
+
+mkdir -p "${DST_DIR}"
 
 make_source
 make_macos

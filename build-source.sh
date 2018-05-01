@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -e
+set -o pipefail
 
 build_transmission() {
     cd
@@ -12,7 +13,26 @@ build_transmission() {
 }
 
 apt-get update
-apt-get install -y bzip2 xz-utils git cmake gcc g++ autoconf automake libtool intltool gettext patch pkg-config pkg-config libcurl4-openssl-dev libevent-dev zlib1g-dev libssl-dev libglib2.0-dev
+apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bzip2 \
+    g++ \
+    gcc \
+    gettext \
+    git cmake \
+    intltool \
+    libcurl4-openssl-dev \
+    libevent-dev \
+    libglib2.0-dev \
+    libssl-dev \
+    libtool \
+    make \
+    patch \
+    pkg-config \
+    pkg-config \
+    xz-utils \
+    zlib1g-dev
 
 build_transmission
 

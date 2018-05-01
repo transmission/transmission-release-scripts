@@ -1,11 +1,15 @@
 #!/usr/bin/env pwsh
 
+$ErrorActionPreference = "Stop"
+$PSDefaultParameterValues["*:ErrorAction"] = $ErrorActionPreference
+
 $temp_dir = "C:\temp-${config}"
 $prefix_dir = "${temp_dir}\prefix"
 
+$cmake_build_type = "RelWithDebInfo"
 $cmake_opts = @(
-    "-DCMAKE_SHARED_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF",
-    "-DCMAKE_EXE_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF"
+    "-DCMAKE_SHARED_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF /DEBUG",
+    "-DCMAKE_EXE_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF /DEBUG"
 )
 
 function download($url, $output) {
@@ -21,13 +25,13 @@ function vcenv() {
 
 function sign() {
     Write-Host "Signing $($args[-1])"
-    psexec -nobanner -accepteula -s cmd /c "C:\vagrant\vcenv-${config}" signtool sign /f $cert_file /p $cert_password /sha1 $cert_sha1 /fd sha256 /tr "http://timestamp.digicert.com" /td sha256 @args
+    cmd /c psexec -nobanner -accepteula -s cmd /c "C:\vagrant\vcenv-${config}" signtool sign /f $cert_file /p $cert_password /sha1 $cert_sha1 /fd sha256 /tr "http://timestamp.digicert.com" /td sha256 @args "2>&1"
 }
 
 function do_cmake_build_install($source_dir, $build_dir, $opts) {
     mkdir -f $build_dir | Out-Null
     pushd $build_dir
-    vcenv cmake $source_dir -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DCMAKE_INSTALL_PREFIX=${prefix_dir}" $opts $cmake_opts
+    vcenv cmake $source_dir -G "NMake Makefiles" "-DCMAKE_BUILD_TYPE=${cmake_build_type}" "-DCMAKE_INSTALL_PREFIX=${prefix_dir}" $opts $cmake_opts
     vcenv nmake
     vcenv nmake install/fast
     popd
@@ -48,8 +52,8 @@ function build_expat($version) {
 
     download $url "${temp_dir}\expat-${version}.tar.gz"
     pushd $temp_dir
-    7z x "expat-${version}.tar.gz"
-    7z x "expat-${version}.tar"
+    7z x -y "expat-${version}.tar.gz"
+    7z x -y "expat-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\expat-${version}\.build-${config}"
@@ -71,8 +75,8 @@ function build_dbus($version) {
 
     download $url "${temp_dir}\dbus-${version}.tar.gz"
     pushd $temp_dir
-    7z x "dbus-${version}.tar.gz"
-    7z x "dbus-${version}.tar"
+    7z x -y "dbus-${version}.tar.gz"
+    7z x -y "dbus-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\dbus-${version}\.build-${config}"
@@ -90,8 +94,8 @@ function build_zlib($version) {
 
     download $url "${temp_dir}\zlib-${version}.tar.gz"
     pushd $temp_dir
-    7z x "zlib-${version}.tar.gz"
-    7z x "zlib-${version}.tar"
+    7z x -y "zlib-${version}.tar.gz"
+    7z x -y "zlib-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\zlib-${version}\.build-${config}"
@@ -110,8 +114,8 @@ function build_openssl($version) {
 
     download $url "${temp_dir}\openssl-${version}.tar.gz"
     pushd $temp_dir
-    7z x "openssl-${version}.tar.gz"
-    7z x "openssl-${version}.tar"
+    7z x -y "openssl-${version}.tar.gz"
+    7z x -y "openssl-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\openssl-${version}"
@@ -151,8 +155,8 @@ function build_curl($version) {
 
     download $url "${temp_dir}\curl-${version}.tar.gz"
     pushd $temp_dir
-    7z x "curl-${version}.tar.gz"
-    7z x "curl-${version}.tar"
+    7z x -y "curl-${version}.tar.gz"
+    7z x -y "curl-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\curl-${version}\.build-${config}"
@@ -218,8 +222,8 @@ function build_qt($version) {
 
     download $url "${temp_dir}\qt-everywhere-opensource-src-${version}.tar.gz"
     pushd $temp_dir
-    7z x "qt-everywhere-opensource-src-${version}.tar.gz"
-    7z x "qt-everywhere-opensource-src-${version}.tar"
+    7z x -y "qt-everywhere-opensource-src-${version}.tar.gz"
+    7z x -y "qt-everywhere-opensource-src-${version}.tar"
     popd
 
     $build_dir = "${temp_dir}\qt-everywhere-opensource-src-${version}\.build-${config}"
@@ -234,21 +238,21 @@ function build_qt($version) {
     popd
 
     # install target doesn't copy PDBs for release DLLs
-    Get-Childitem -Path "${build_dir}\lib" | %% { if ($_ -is [System.IO.DirectoryInfo] -or $_.Name -like "*.pdb") { Copy-Item -Path $_.FullName -Destination "${prefix_dir}\lib" -Filter "*.pdb" -Recurse -Force } }
-    Get-Childitem -Path "${build_dir}\plugins" | %% { if ($_ -is [System.IO.DirectoryInfo] -or $_.Name -like "*.pdb") { Copy-Item -Path $_.FullName -Destination "${prefix_dir}\plugins" -Filter "*.pdb" -Recurse -Force } }
+    Get-Childitem -Path "${build_dir}\qtbase\lib" | % { if ($_ -is [System.IO.DirectoryInfo] -or $_.Name -like "*.pdb") { Copy-Item -Path $_.FullName -Destination "${prefix_dir}\lib" -Filter "*.pdb" -Recurse -Force } }
+    Get-Childitem -Path "${build_dir}\qtbase\plugins" | % { if ($_ -is [System.IO.DirectoryInfo] -or $_.Name -like "*.pdb") { Copy-Item -Path $_.FullName -Destination "${prefix_dir}\plugins" -Filter "*.pdb" -Recurse -Force } }
 }
 
 function build_transmission() {
     $source_dir = "${env:USERPROFILE}\src"
     cmake -E remove_directory $source_dir
-    mkdir $source_dir | Out-Null
+    mkdir -f $source_dir | Out-Null
     pushd $source_dir
 
-    & git clone -b $release_branch $repo_uri . 2>&1 | %{ "$_" }
-    & git submodule update --init 2>&1 | %{ "$_" }
+    cmd /c git clone -b $release_branch $repo_uri . "2>&1"
+    cmd /c git submodule update --init "2>&1"
 
     $build_dir = "${source_dir}\.build-${config}"
-    mkdir $build_dir | Out-Null
+    mkdir -f $build_dir | Out-Null
     pushd $build_dir
 
     $env:PATH = "${prefix_dir}\bin;" + $env:PATH
@@ -273,12 +277,12 @@ function build_transmission() {
     $wix_config | Out-File "$tr_wix_dir\TransmissionConfig.wxi" -Encoding utf8 -Force
 
     $tr_wix_prefix_dir = "${tr_wix_dir}\prefix"
-    mkdir "${tr_wix_prefix_dir}\bin" | Out-Null
-    mkdir "${tr_wix_prefix_dir}\etc" | Out-Null
-    mkdir "${tr_wix_prefix_dir}\plugins\platforms" | Out-Null
+    mkdir -f "${tr_wix_prefix_dir}\bin" | Out-Null
+    mkdir -f "${tr_wix_prefix_dir}\etc" | Out-Null
+    mkdir -f "${tr_wix_prefix_dir}\plugins\platforms" | Out-Null
 
     $dbg_dir = "${build_dir}\dbg"
-    mkdir $dbg_dir | Out-Null
+    mkdir -f $dbg_dir | Out-Null
 
     $tr_pdb_names = @()
 
@@ -288,11 +292,8 @@ function build_transmission() {
         $tr_pdb_names += "transmission-${x}.pdb"
     }
 
-    Get-Childitem -Path $build_dir -Filter "*.pdb" -Recurse | % {
-        if ($tr_pdb_names -contains $_.Name) {
-            Copy-Item -Path $_.FullName -Destination $dbg_dir
-        }
-    }
+    $trPdbs = Get-Childitem -Path $build_dir -Filter "*.pdb" -Recurse | ? { $tr_pdb_names -contains $_.Name }
+    $trPdbs | % { Copy-Item -Path $_.FullName -Destination $dbg_dir }
 
     foreach ($x in @("libcurl", "libeay32", "ssleay32", "zlib", "dbus-1-3", "expat")) {
         Copy-Item -Path "${prefix_dir}\bin\${x}.dll" -Destination "${tr_wix_prefix_dir}\bin\"
@@ -321,7 +322,7 @@ function build_transmission() {
 
     $arch = if ($config -eq "x86") { "x86" } else { "x64" }
 
-    mkdir $dst_dir
+    mkdir -f $dst_dir | Out-Null
     vcenv cmake -E chdir $tr_wix_dir nmake "VERSION=${release_version}" "ARCH=${arch}" "SRCDIR=${tr_wix_prefix_dir}" "OUTDIR=${dst_dir}" "OBJDIR=${tr_wix_prefix_dir}" "THIRDPARTYIDIR=${tr_wix_prefix_dir}" "QTDIR=${tr_wix_prefix_dir}" "QTQMSRCDIR=${prefix_dir}\translations"
     sign /d "Transmission BitTorrent Client" /du "https://transmissionbt.com/" "${dst_dir}\transmission-${release_version}-${arch}.msi"
 
@@ -333,16 +334,26 @@ function build_transmission() {
     popd
 }
 
-# cmake -E remove_directory $temp_dir
-cmake -E make_directory $temp_dir
+try {
+    # cmake -E remove_directory $temp_dir
+    cmake -E make_directory $temp_dir
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-build_expat "2.1.0"
-build_dbus "1.10.6"
-build_zlib "1.2.8"
-build_openssl "1.0.2g"
-build_curl "7.47.1"
-build_qt "5.6.0"
+    build_expat "2.1.0"
+    build_dbus "1.10.6"
+    build_zlib "1.2.8"
+    build_openssl "1.0.2g"
+    build_curl "7.47.1"
+    build_qt "5.6.0"
 
-build_transmission
+    build_transmission
+}
+catch {
+    Write-Host
+    Write-Host -ForegroundColor Red "Error: $_"
+    Write-Host -ForegroundColor Red $_.InvocationInfo.PositionMessage
+    Write-Host -ForegroundColor Red $_.Exception
+    Write-Host -ForegroundColor Red $_.ScriptStackTrace
+    exit 1
+}

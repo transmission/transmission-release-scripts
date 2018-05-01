@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
 set -e
+set -o pipefail
 
 KEYCHAIN_CREATE_NEW=1
-KEYCHAIN_NAME="$HOME/Library/Keychains/transmission-db"
+KEYCHAIN_NAME="${HOME}/Library/Keychains/transmission-db"
 KEYCHAIN_PASSWORD='vagrant'
 BUILD_TYPE='Release'
 
