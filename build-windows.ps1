@@ -3,14 +3,15 @@
 $ErrorActionPreference = "Stop"
 $PSDefaultParameterValues["*:ErrorAction"] = $ErrorActionPreference
 
-$temp_dir = "C:\temp-${config}"
-$prefix_dir = "${temp_dir}\prefix"
+# https://github.com/PowerShell/PowerShell/issues/2138
+$ProgressPreference = "SilentlyContinue"
+
+$dl_dir = "C:\tools"
+$temp_dir = "C:\tools\msvc16-${arch}.build"
+$prefix_dir = "C:\tools\msvc16-${arch}"
 
 $cmake_build_type = "RelWithDebInfo"
-$cmake_opts = @(
-    "-DCMAKE_SHARED_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF /DEBUG",
-    "-DCMAKE_EXE_LINKER_FLAGS:STRING=/LTCG /INCREMENTAL:NO /OPT:REF /DEBUG"
-)
+$env:LDFLAGS = "/LTCG /INCREMENTAL:NO /OPT:REF /DEBUG /PDBALTPATH:%_PDB%"
 
 function download($url, $output) {
     if (!(Test-Path $output)) {
@@ -19,13 +20,37 @@ function download($url, $output) {
     }
 }
 
+function download_and_unpack($url, $name) {
+    download $url "${dl_dir}\${name}"
+
+    pushd $temp_dir
+
+    if ($name -match '^(.+)(\.(?:gz|bz2|xz))$') {
+        if (!(Test-Path "${dl_dir}\$($Matches[1])")) {
+            7z x -y "${dl_dir}\${name}" "-o${dl_dir}"
+        }
+        $name = $Matches[1]
+    }
+
+    if ($name -match '^(.+)(\.(?:tar|zip))$') {
+        7z x -y "${dl_dir}\${name}"
+        $name = $Matches[1]
+    }
+
+    popd
+
+    return "${temp_dir}\${name}"
+}
+
 function vcenv() {
-    & "C:\vagrant\vcenv-${config}" @args
+    & "C:\vagrant\vcenv-${arch}" @args
 }
 
 function sign() {
-    Write-Host "Signing $($args[-1])"
-    cmd /c psexec -nobanner -accepteula -s cmd /c "C:\vagrant\vcenv-${config}" signtool sign /f $cert_file /p $cert_password /sha1 $cert_sha1 /fd sha256 /tr "http://timestamp.digicert.com" /td sha256 @args "2>&1"
+    if ($enable_signing) {
+        Write-Host "Signing $($args[-1])"
+        cmd /c psexec -nobanner -accepteula -s cmd /c "C:\vagrant\vcenv-${arch}" signtool sign /f $cert_file /p $cert_password /sha1 $cert_sha1 /fd sha256 /tr "http://timestamp.digicert.com" /td sha256 @args "2>&1"
+    }
 }
 
 function do_cmake_build_install($source_dir, $build_dir, $opts) {
@@ -38,27 +63,22 @@ function do_cmake_build_install($source_dir, $build_dir, $opts) {
 }
 
 function build_expat($version) {
-    if (Test-Path "${prefix_dir}\bin\expat.pdb") {
+    if (Test-Path "${prefix_dir}\bin\libexpat.pdb") {
         return
     }
 
-    $url = "https://github.com/libexpat/libexpat/releases/download/R_$($version.replace(".", "_"))/expat-${version}.tar.gz"
+    $url = "https://github.com/libexpat/libexpat/releases/download/R_$($version.replace(".", "_"))/expat-${version}.tar.bz2"
     $opts = @(
         "-DBUILD_tools=OFF",
         "-DBUILD_examples=OFF",
-        "-DBUILD_tests=OFF",
-        "-DBUILD_static=OFF"
+        "-DBUILD_tests=OFF"
     )
 
-    download $url "${temp_dir}\expat-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "expat-${version}.tar.gz"
-    7z x -y "expat-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "expat-${version}.tar.bz2")[-1]
 
-    $build_dir = "${temp_dir}\expat-${version}\.build-${config}"
+    $build_dir = "${source_dir}\.build"
     do_cmake_build_install .. $build_dir $opts
-    Copy-Item -Path "${build_dir}\expat.pdb" -Destination "${prefix_dir}\bin"
+    Copy-Item -Path "${build_dir}\libexpat.pdb" -Destination "${prefix_dir}\bin"
 }
 
 function build_dbus($version) {
@@ -73,13 +93,14 @@ function build_dbus($version) {
         "-DDBUS_BUILD_TESTS=OFF"
     )
 
-    download $url "${temp_dir}\dbus-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "dbus-${version}.tar.gz"
-    7z x -y "dbus-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "dbus-${version}.tar.gz")[-1]
 
-    $build_dir = "${temp_dir}\dbus-${version}\.build-${config}"
+    # Patch to remove "-3" (or whatever) revision suffix part from DLL name since Qt doesn't seem to support that and we don't really need it
+    $patched_file = "${source_dir}\cmake\modules\MacrosAutotools.cmake"
+    Get-Content $patched_file | Select-String -Pattern "_LIBRARY_REVISION" -NotMatch | Out-File "${patched_file}_new" -Encoding ascii
+    Move-Item -Path "${patched_file}_new" -Destination $patched_file -Force
+
+    $build_dir = "${source_dir}\.build"
     do_cmake_build_install ..\cmake $build_dir $opts
     Copy-Item -Path "${build_dir}\bin\dbus-1.pdb" -Destination "${prefix_dir}\bin"
 }
@@ -92,42 +113,30 @@ function build_zlib($version) {
     $url = "https://zlib.net/fossils/zlib-${version}.tar.gz"
     $opts = @()
 
-    download $url "${temp_dir}\zlib-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "zlib-${version}.tar.gz"
-    7z x -y "zlib-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "zlib-${version}.tar.gz")[-1]
 
-    $build_dir = "${temp_dir}\zlib-${version}\.build-${config}"
+    $build_dir = "${source_dir}\.build"
     do_cmake_build_install .. $build_dir $opts
     Copy-Item -Path "${build_dir}\zlib.pdb" -Destination "${prefix_dir}\bin"
 }
 
 function build_openssl($version) {
-    if (Test-Path "${prefix_dir}\bin\ssleay32.pdb") {
+    $lib_suffix = if ($arch -eq "x86") { "" } else { "-x64" }
+    if (Test-Path "${prefix_dir}\bin\libssl-1_1${lib_suffix}.pdb") {
         return
     }
 
-    $url = "https://www.openssl.org/source/old/$($version -replace '[a-z]$','')/openssl-${version}.tar.gz"
-    $ossl_config = if ($config -eq "x86") { "VC-WIN32" } else { "VC-WIN64A" }
-    $ossl_prep = if ($config -eq "x86") { "ms\do_nasm.bat" } else { "ms\do_win64a.bat" }
+    $url = "https://www.openssl.org/source/openssl-${version}.tar.gz"
+    $ossl_config = if ($arch -eq "x86") { "VC-WIN32" } else { "VC-WIN64A" }
 
-    download $url "${temp_dir}\openssl-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "openssl-${version}.tar.gz"
-    7z x -y "openssl-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "openssl-${version}.tar.gz")[-1]
 
-    $build_dir = "${temp_dir}\openssl-${version}"
+    $build_dir = $source_dir
     pushd $build_dir
     vcenv perl Configure "--prefix=${prefix_dir}" $ossl_config
-    vcenv cmd /c $ossl_prep
-    vcenv nmake -f ms\ntdll.mak
-    vcenv nmake -f ms\ntdll.mak install
+    vcenv nmake
+    vcenv nmake install_sw
     popd
-
-    Copy-Item -Path "${build_dir}\out32dll\libeay32.pdb" -Destination "${prefix_dir}\bin"
-    Copy-Item -Path "${build_dir}\out32dll\ssleay32.pdb" -Destination "${prefix_dir}\bin"
 }
 
 function build_curl($version) {
@@ -139,7 +148,8 @@ function build_curl($version) {
     $opts = @(
         "-DCMAKE_USE_OPENSSL=ON",
         "-DCURL_WINDOWS_SSPI=OFF",
-        "-DBUILD_CURL_TESTS=OFF",
+        "-DBUILD_CURL_EXE=OFF",
+        "-DBUILD_TESTING=OFF",
         "-DCURL_DISABLE_DICT=ON",
         "-DCURL_DISABLE_GOPHER=ON",
         "-DCURL_DISABLE_IMAP=ON",
@@ -153,14 +163,11 @@ function build_curl($version) {
         "-DENABLE_MANUAL=OFF"
     )
 
-    download $url "${temp_dir}\curl-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "curl-${version}.tar.gz"
-    7z x -y "curl-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "curl-${version}.tar.gz")[-1]
 
-    $build_dir = "${temp_dir}\curl-${version}\.build-${config}"
+    $build_dir = "${source_dir}\.build"
     do_cmake_build_install .. $build_dir $opts
+    cmake -E remove_directory "${prefix_dir}/lib/cmake/CURL" # until we support it
     Copy-Item -Path "${build_dir}\lib\libcurl.pdb" -Destination "${prefix_dir}\bin"
 }
 
@@ -169,11 +176,11 @@ function build_qt($version) {
         return
     }
 
-    $url = "https://download.qt.io/archive/qt/$($version -replace '\.\d+$','')/${version}/single/qt-everywhere-opensource-src-${version}.tar.gz"
+    $url = "https://download.qt.io/archive/qt/$($version -replace '\.\d+$','')/${version}/single/qt-everywhere-src-${version}.zip" # tar.xz has some names truncated (e.g. .../double-conversion.h -> .../double-conv)
     $opts = @(
-        "-platform", "win32-msvc2015",
+        "-platform", "win32-msvc",
         "-mp",
-        "-ltcg",
+        # "-ltcg", # C1002 on VS 2019 16.5.4
         "-opensource",
         "-confirm-license",
         "-prefix", $prefix_dir,
@@ -182,16 +189,19 @@ function build_qt($version) {
         "-no-opengl",
         "-dbus",
         "-skip", "connectivity",
-        # "-skip", "declarative", # QTBUG-51409
+        "-skip", "declarative",
         "-skip", "doc",
-        "-skip", "enginio",
+        "-skip", "gamepad",
         "-skip", "graphicaleffects",
         "-skip", "location",
         "-skip", "multimedia",
+        "-skip", "purchasing",
         "-skip", "quickcontrols",
+        "-skip", "remoteobjects",
         "-skip", "script",
         "-skip", "sensors",
         "-skip", "serialport",
+        "-skip", "speech",
         "-skip", "webchannel",
         "-skip", "webengine",
         "-skip", "websockets",
@@ -202,31 +212,21 @@ function build_qt($version) {
         "-qt-libpng",
         "-qt-libjpeg",
         "-no-harfbuzz",
-        "-no-sse2",
-        "-no-sse3",
-        "-no-ssse3",
-        "-no-sse4.1",
-        "-no-sse4.2",
-        "-no-avx",
-        "-no-avx2",
-        "-no-wmf-backend",
-        "-no-qml-debug",
         "-nomake", "examples",
         "-nomake", "tests",
         "-nomake", "tools",
         "-I", "${prefix_dir}\include",
-        "-L", "${prefix_dir}\lib",
-        "OPENSSL_LIBS=libeay32.lib ssleay32.lib",
-        "ZLIB_LIBS=zlib.lib"
+        "-L", "${prefix_dir}\lib"
     )
 
-    download $url "${temp_dir}\qt-everywhere-opensource-src-${version}.tar.gz"
-    pushd $temp_dir
-    7z x -y "qt-everywhere-opensource-src-${version}.tar.gz"
-    7z x -y "qt-everywhere-opensource-src-${version}.tar"
-    popd
+    $source_dir = (download_and_unpack $url "qt-everywhere-src-${version}.zip")[-1]
 
-    $build_dir = "${temp_dir}\qt-everywhere-opensource-src-${version}\.build-${config}"
+    # Patch to add our linker flags, mainly /PDBALTPATH
+    $patched_file = "${source_dir}\qtbase\mkspecs\win32-msvc\qmake.conf"
+    (Get-Content $patched_file) -Replace '(^QMAKE_CXXFLAGS\b.*)', ('$1' + "`nQMAKE_LFLAGS += ${env:LDFLAGS}") | Out-File "${patched_file}_new" -Encoding ascii
+    Move-Item -Path "${patched_file}_new" -Destination $patched_file -Force
+
+    $build_dir = "${source_dir}\.build"
     cmake -E remove_directory $build_dir
     $env:PATH = "${prefix_dir}\bin;${build_dir}\qtbase\lib;${env:PATH}"
     md -f $build_dir | Out-Null
@@ -243,43 +243,24 @@ function build_qt($version) {
 }
 
 function build_transmission() {
-    $source_dir = "${env:USERPROFILE}\src"
+    $source_dir = "C:\build"
     cmake -E remove_directory $source_dir
     mkdir -f $source_dir | Out-Null
     pushd $source_dir
 
-    cmd /c git clone -b $release_branch $repo_uri . "2>&1"
-    cmd /c git submodule update --init "2>&1"
+    cmd /c git clone --branch $release_branch --depth 1 --recurse-submodules --shallow-submodules $repo_uri . "2>&1"
 
-    $build_dir = "${source_dir}\.build-${config}"
+    $build_dir = "${source_dir}\.build"
     mkdir -f $build_dir | Out-Null
     pushd $build_dir
 
     $env:PATH = "${prefix_dir}\bin;" + $env:PATH
 
-    $tr_prefix_dir = "${build_dir}\dst"
-    vcenv cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DCMAKE_INSTALL_PREFIX=${tr_prefix_dir}" $cmake_opts -DUSE_QT5=ON
+    $tr_prefix_dir = "${build_dir}\prefix"
+    vcenv cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DCMAKE_INSTALL_PREFIX=${tr_prefix_dir}" "-DTR_THIRD_PARTY_DIR:PATH=${tr_prefix_dir}" "-DTR_QT_DIR:PATH=${tr_prefix_dir}" $cmake_opts
     vcenv nmake
     vcenv nmake test
     vcenv nmake install/fast
-
-    $tr_wix_dir = "${build_dir}\wix"
-    Copy-Item -Path C:\vagrant\wix -Destination $build_dir -Recurse
-
-    $wix_config = @"
-<?xml version='1.0' encoding='utf-8'?>
-<Include xmlns='http://schemas.microsoft.com/wix/2006/wi'>
-    <?define TrVersion = "${release_version}" ?>
-    <?define TrVersionMsi = "${release_version}.0" ?>
-    <?define TrVersionFull = "${release_version} (${release_revision})" ?>
-</Include>
-"@
-    $wix_config | Out-File "$tr_wix_dir\TransmissionConfig.wxi" -Encoding utf8 -Force
-
-    $tr_wix_prefix_dir = "${tr_wix_dir}\prefix"
-    mkdir -f "${tr_wix_prefix_dir}\bin" | Out-Null
-    mkdir -f "${tr_wix_prefix_dir}\etc" | Out-Null
-    mkdir -f "${tr_wix_prefix_dir}\plugins\platforms" | Out-Null
 
     $dbg_dir = "${build_dir}\dbg"
     mkdir -f $dbg_dir | Out-Null
@@ -287,43 +268,42 @@ function build_transmission() {
     $tr_pdb_names = @()
 
     foreach ($x in @("remote", "create", "edit", "show", "daemon", "qt")) {
-        Copy-Item -Path "${tr_prefix_dir}\bin\transmission-${x}.exe" -Destination "${tr_wix_prefix_dir}\bin\"
-        sign "${tr_wix_prefix_dir}\bin\transmission-${x}.exe"
+        sign "${tr_prefix_dir}\bin\transmission-${x}.exe"
         $tr_pdb_names += "transmission-${x}.pdb"
     }
 
     $trPdbs = Get-Childitem -Path $build_dir -Filter "*.pdb" -Recurse | ? { $tr_pdb_names -contains $_.Name }
     $trPdbs | % { Copy-Item -Path $_.FullName -Destination $dbg_dir }
 
-    foreach ($x in @("libcurl", "libeay32", "ssleay32", "zlib", "dbus-1-3", "expat")) {
-        Copy-Item -Path "${prefix_dir}\bin\${x}.dll" -Destination "${tr_wix_prefix_dir}\bin\"
-        sign "${tr_wix_prefix_dir}\bin\${x}.dll"
-
-        if ($x -eq "dbus-1-3") {
-            $x = "dbus-1"
-        }
-
+    $openssl_lib_suffix = if ($arch -eq "x86") { "" } else { "-x64" }
+    foreach ($x in @("libcurl", "libcrypto-1_1${openssl_lib_suffix}", "libssl-1_1${openssl_lib_suffix}", "zlib", "dbus-1", "libexpat")) {
+        Copy-Item -Path "${prefix_dir}\bin\${x}.dll" -Destination "${tr_prefix_dir}\bin\"
+        sign "${tr_prefix_dir}\bin\${x}.dll"
         Copy-Item -Path "${prefix_dir}\bin\${x}.pdb" -Destination $dbg_dir
     }
 
-    foreach ($x in @("Core", "DBus", "Gui", "Network", "Widgets")) {
-        Copy-Item -Path "${prefix_dir}\bin\Qt5${x}.dll" -Destination "${tr_wix_prefix_dir}\bin\"
-        sign "${tr_wix_prefix_dir}\bin\Qt5${x}.dll"
+    foreach ($x in @("Core", "DBus", "Gui", "Network", "Widgets", "WinExtras")) {
+        Copy-Item -Path "${prefix_dir}\bin\Qt5${x}.dll" -Destination "${tr_prefix_dir}\bin\"
+        sign "${tr_prefix_dir}\bin\Qt5${x}.dll"
         Copy-Item -Path "${prefix_dir}\bin\Qt5${x}.pdb" -Destination $dbg_dir
     }
 
-    Copy-Item -Path "${prefix_dir}\plugins\platforms\qwindows.dll" -Destination "${tr_wix_prefix_dir}\plugins\platforms\"
-    sign "${tr_wix_prefix_dir}\plugins\platforms\qwindows.dll"
+    mkdir -f "${tr_prefix_dir}\plugins\platforms" | Out-Null
+    Copy-Item -Path "${prefix_dir}\plugins\platforms\qwindows.dll" -Destination "${tr_prefix_dir}\plugins\platforms\"
+    sign "${tr_prefix_dir}\plugins\platforms\qwindows.dll"
     Copy-Item -Path "${prefix_dir}\plugins\platforms\qwindows.pdb" -Destination $dbg_dir
 
-    Copy-Item -Path "${tr_prefix_dir}\share" -Destination "${tr_wix_prefix_dir}\" -Recurse
+    mkdir -f "${tr_prefix_dir}\plugins\styles" | Out-Null
+    Copy-Item -Path "${prefix_dir}\plugins\styles\qwindowsvistastyle.dll" -Destination "${tr_prefix_dir}\plugins\styles\"
+    sign "${tr_prefix_dir}\plugins\styles\qwindowsvistastyle.dll"
+    Copy-Item -Path "${prefix_dir}\plugins\styles\qwindowsvistastyle.pdb" -Destination $dbg_dir
 
-    New-Item -ItemType file "${tr_wix_prefix_dir}\etc\qt.conf"
+    Copy-Item -Path "${prefix_dir}\translations" -Destination "${tr_prefix_dir}" -Recurse
 
-    $arch = if ($config -eq "x86") { "x86" } else { "x64" }
+    vcenv nmake pack-msi
 
     mkdir -f $dst_dir | Out-Null
-    vcenv cmake -E chdir $tr_wix_dir nmake "VERSION=${release_version}" "ARCH=${arch}" "SRCDIR=${tr_wix_prefix_dir}" "OUTDIR=${dst_dir}" "OBJDIR=${tr_wix_prefix_dir}" "THIRDPARTYIDIR=${tr_wix_prefix_dir}" "QTDIR=${tr_wix_prefix_dir}" "QTQMSRCDIR=${prefix_dir}\translations"
+    Copy-Item -Path "${build_dir}\dist\msi\transmission-${release_version}-${arch}.msi" -Destination "${dst_dir}\"
     sign /d "Transmission BitTorrent Client" /du "https://transmissionbt.com/" "${dst_dir}\transmission-${release_version}-${arch}.msi"
 
     pushd $dbg_dir
@@ -340,12 +320,12 @@ try {
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-    build_expat "2.1.0"
-    build_dbus "1.10.6"
-    build_zlib "1.2.8"
-    build_openssl "1.0.2g"
-    build_curl "7.47.1"
-    build_qt "5.6.0"
+    build_expat "2.2.9"
+    build_dbus "1.12.16"
+    build_zlib "1.2.11"
+    build_openssl "1.1.1g"
+    build_curl "7.69.1"
+    build_qt "5.14.2"
 
     build_transmission
 }

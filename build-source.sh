@@ -5,9 +5,12 @@ set -o pipefail
 
 build_transmission() {
     cd
-    git clone -b "${RELEASE_BRANCH}" "${REPO_URI}" src
+    git clone --branch "${RELEASE_BRANCH}" --depth 1 --recurse-submodules --shallow-submodules "${REPO_URI}" src
     cd src
-    git submodule update --init
+
+    # Patch version to support non-release builds
+    sed -ri "s|^(\s*AC_INIT\(\[([^]]*)\],)\[([^]]*)\]|\1[${RELEASE_VERSION}]|" configure.ac
+
     ./autogen.sh
     make distcheck
 }
@@ -17,10 +20,11 @@ apt-get install -y --no-install-recommends \
     autoconf \
     automake \
     bzip2 \
+    cmake \
     g++ \
     gcc \
     gettext \
-    git cmake \
+    git \
     intltool \
     libcurl4-openssl-dev \
     libevent-dev \
@@ -28,8 +32,6 @@ apt-get install -y --no-install-recommends \
     libssl-dev \
     libtool \
     make \
-    patch \
-    pkg-config \
     pkg-config \
     xz-utils \
     zlib1g-dev

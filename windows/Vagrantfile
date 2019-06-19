@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 Vagrant.configure("2") do |config|
-  config.vm.box = "marcinbojko/w1709-trial"
+  config.vm.box = "gusztavvargadr/windows-10"
 
   config.vm.provider "virtualbox" do |vb|
     vb.name = "windows (transmission release)"
@@ -9,22 +9,22 @@ Vagrant.configure("2") do |config|
     vb.memory = "8192"
     vb.cpus = 1
     vb.gui = false
+    vb.linked_clone = true
   end
 
   config.vm.provision "shell", inline: <<-SHELL
-    choco install vcbuildtools --version 2015.4 -y
-    choco install cmake 7zip ActivePerl python2 nasm git patch psexec -y
-    choco install wixtoolset --version 3.11.0.20170506 -y
+    choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows10SDK.17763 --add Microsoft.VisualStudio.Component.VC.Redist.MSM" -y --timeout=0
+    choco install cmake.portable 7zip.portable ActivePerl python2 nasm git imagemagick.tool -y --timeout=0
+    choco install psexec -y --ignore-checksums --timeout=0
+    choco install wixtoolset --version 3.11.2 -y --timeout=0
 
     $paths = @(
-        "C:\\Program Files (x86)\\Microsoft Visual C++ Build Tools",
-        "C:\\Program Files\\CMake\\bin",
-        "C:\\Program Files\\7-Zip",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Auxiliary\\Build",
         "C:\\Perl64\\bin",
         "C:\\Python27",
         "C:\\Program Files\\NASM",
         "C:\\Program Files\\Git\\bin",
-        "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
+        "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin" # ,
     )
 
     foreach ($path in $paths) {

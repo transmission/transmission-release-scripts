@@ -1,4 +1,4 @@
 @pushd .
-@call vcvarsall x86
+@call vcvarsall amd64
 @popd
 @%* 2>&1

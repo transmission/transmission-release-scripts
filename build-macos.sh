@@ -14,21 +14,24 @@ build_transmission() {
     mkdir -p src "${DST_DIR}"
     pushd src
 
-    git clone -b "${RELEASE_BRANCH}" "${REPO_URI}" .
-    git submodule update --init
+    git clone --branch "${RELEASE_BRANCH}" --depth 1 --recurse-submodules --shallow-submodules "${REPO_URI}" .
 
     xcodebuild -project Transmission.xcodeproj clean
     xcodebuild -project Transmission.xcodeproj -target Transmission -configuration "${BUILD_TYPE}"
 
     mkdir -p dmg
     cp -R "build/${BUILD_TYPE}/Transmission.app" dmg/
-    security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
-    security set-key-partition-list -S 'apple:,codesign:' -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
-    security dump-keychain -a "${KEYCHAIN_NAME}"
-    security list-keychains -s "${KEYCHAIN_NAME}"
-    codesign --force --deep -v -s "${CERT_NAME}" dmg/Transmission.app
-    spctl -a -v dmg/Transmission.app
-    security list-keychains -s login.keychain
+
+    if [ "${ENABLE_SIGNING}" -ne 0 ]; then
+        security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+        security set-key-partition-list -S 'apple:,codesign:' -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+        security dump-keychain -a "${KEYCHAIN_NAME}"
+        security list-keychains -s "${KEYCHAIN_NAME}"
+        codesign --force --deep -v -s "${CERT_NAME}" dmg/Transmission.app
+        spctl -a -v dmg/Transmission.app
+        security list-keychains -s login.keychain
+    fi
+
     hdiutil create -volname Transmission -srcfolder dmg/ -format UDBZ -noanyowners -fs HFS+ "${DST_DIR}/Transmission.dmg"
     hdiutil internet-enable -yes "${DST_DIR}/Transmission.dmg"
 
@@ -40,24 +43,29 @@ build_transmission() {
     rm -rf src
 }
 
-if [ ${KEYCHAIN_CREATE_NEW} -ne 0 ]; then
-    security delete-keychain "${KEYCHAIN_NAME}" || true
-    security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
-fi
-
 ERR=0
-security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}" && security import "${CERT_FILE}" -P "${CERT_PASSWORD}" -k "${KEYCHAIN_NAME}" -T /usr/bin/codesign || ERR=1
-rm -Pf "${CERT_FILE}"
-[ ${ERR} -eq 0 ] || exit ${ERR}
+
+if [ "${ENABLE_SIGNING}" -ne 0 ]; then
+    if [ ${KEYCHAIN_CREATE_NEW} -ne 0 ]; then
+        security delete-keychain "${KEYCHAIN_NAME}" || true
+        security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+    fi
+
+    security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}" && security import "${CERT_FILE}" -P "${CERT_PASSWORD}" -k "${KEYCHAIN_NAME}" -T /usr/bin/codesign || ERR=1
+    rm -Pf "${CERT_FILE}"
+    [ ${ERR} -eq 0 ] || exit ${ERR}
+fi
 
 build_transmission || ERR=1
 
-security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
-security delete-identity -c "${CERT_NAME}" "${KEYCHAIN_NAME}"
-security lock-keychain "${KEYCHAIN_NAME}"
+if [ "${ENABLE_SIGNING}" -ne 0 ]; then
+    security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+    security delete-identity -c "${CERT_NAME}" "${KEYCHAIN_NAME}"
+    security lock-keychain "${KEYCHAIN_NAME}"
 
-if [ ${KEYCHAIN_CREATE_NEW} -ne 0 ]; then
-    security delete-keychain "${KEYCHAIN_NAME}"
+    if [ ${KEYCHAIN_CREATE_NEW} -ne 0 ]; then
+        security delete-keychain "${KEYCHAIN_NAME}"
+    fi
 fi
 
 [ ${ERR} -eq 0 ] || exit ${ERR}
