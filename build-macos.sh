@@ -27,7 +27,13 @@ build_transmission() {
         security set-key-partition-list -S 'apple:,codesign:' -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
         security dump-keychain -a "${KEYCHAIN_NAME}"
         security list-keychains -s "${KEYCHAIN_NAME}"
-        codesign --force --deep -v -s "${CERT_NAME}" dmg/Transmission.app
+        
+        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Library/QuickLook/QuickLookPlugin.qlgenerator/Contents/MacOS/QuickLookPlugin
+        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Frameworks/Sparkle.framework/Versions/A/Resources/Autoupdate.app/Contents/MacOS/Autoupdate
+        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Frameworks/Sparkle.framework/Versions/A/Resources/Autoupdate.app/Contents/MacOS/fileop
+        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Frameworks/Sparkle.framework/Versions/A/Resources/Autoupdate.app
+        codesign --force --deep --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app
+        
         spctl -a -v dmg/Transmission.app
         security list-keychains -s login.keychain
     fi
