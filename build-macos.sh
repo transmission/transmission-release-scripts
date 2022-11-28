@@ -38,8 +38,23 @@ build_transmission() {
         security list-keychains -s login.keychain
     fi
 
-    hdiutil create -volname Transmission -srcfolder dmg/ -format UDBZ -noanyowners -fs HFS+ "${DST_DIR}/Transmission.dmg"
-    hdiutil internet-enable -yes "${DST_DIR}/Transmission.dmg"
+    git clone https://github.com/create-dmg/create-dmg.git
+    ./create-dmg/create-dmg \
+        --volname "Transmission" \
+        --background "./macos/dmg_background.png" \
+        --window-pos 200 120 \
+        --window-size 500 332 \
+        --icon-size 120 \
+        --text-size 14 \
+        --icon "Transmission.app" 100 180 \
+        --hide-extension "Transmission.app" \
+        --format UDBZ \
+        --app-drop-link 390 180 \
+        "Transmission.dmg" \
+        "./dmg/"
+
+    rm -rf ./create-dmg
+    mv "Transmission.dmg" "${DST_DIR}/Transmission.dmg"
 
     mkdir -p dsym
     cp -RPp "build/${BUILD_TYPE}/QuickLookPlugin.qlgenerator.dSYM" "build/${BUILD_TYPE}/Transmission.app.dSYM" dsym/
