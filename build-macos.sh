@@ -39,7 +39,6 @@ build_transmission() {
     fi
 
     hdiutil create -volname Transmission -srcfolder dmg/ -format UDBZ -noanyowners -fs HFS+ "${DST_DIR}/Transmission.dmg"
-    hdiutil internet-enable -yes "${DST_DIR}/Transmission.dmg"
 
     mkdir -p dsym
     cp -RPp "build/${BUILD_TYPE}/QuickLookPlugin.qlgenerator.dSYM" "build/${BUILD_TYPE}/Transmission.app.dSYM" dsym/
