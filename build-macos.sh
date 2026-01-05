@@ -29,7 +29,7 @@ build_transmission() {
         security list-keychains -s "${KEYCHAIN_NAME}"
         
         codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Library/QuickLook/QuickLookPlugin.qlgenerator/Contents/MacOS/QuickLookPlugin
-        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" --entitlements ./macosx/QuickLookExtension/QuickLookExtension.entitlements dmg/Transmission.app/Contents/PlugIns/QuickLook/QuickLookExtension.appex/Contents/MacOS/QuickLookExtension
+        codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" --entitlements ./macosx/QuickLookExtension/QuickLookExtension.entitlements dmg/Transmission.app/Contents/PlugIns/QuickLook/QuickLookExtension.appex
         codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app/Contents/Frameworks/Sparkle.framework
         codesign --force --timestamp --options runtime -v -s "${CERT_NAME}" dmg/Transmission.app
         
