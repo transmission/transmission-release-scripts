@@ -21,6 +21,9 @@ build_transmission() {
 
     mkdir -p dmg
     cp -R "build/${BUILD_TYPE}/Transmission.app" dmg/
+    cd dmg
+    ln -s /Applications
+    cd ..
 
     if [ "${ENABLE_SIGNING}" -ne 0 ]; then
         security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
